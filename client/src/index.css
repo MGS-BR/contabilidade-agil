@@ -1,0 +1,43 @@
+@import "tailwindcss";
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  @apply bg-gray-50 text-gray-900 antialiased;
+}
+
+/* Impressão de relatórios: com o relatório aberto, só ele vai para o papel/PDF.
+   O modal é renderizado fora do #root (portal), então basta esconder o app. */
+@media print {
+  body:has(.area-impressao) #root {
+    display: none;
+  }
+  .modal-overlay:has(.area-impressao) {
+    position: static;
+    display: block;
+    padding: 0;
+    background: none;
+  }
+  .area-impressao {
+    max-height: none !important;
+    box-shadow: none !important;
+    border-radius: 0 !important;
+  }
+  .area-impressao .overflow-y-auto,
+  .area-impressao .overflow-x-auto {
+    overflow: visible !important;
+  }
+  .area-impressao table {
+    min-width: 0 !important;
+  }
+  .nao-imprimir {
+    display: none !important;
+  }
+  @page {
+    margin: 14mm;
+  }
+}

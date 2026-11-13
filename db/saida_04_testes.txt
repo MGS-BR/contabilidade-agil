@@ -1,0 +1,560 @@
+You are now connected to database "contabilidade_agil" as user "postgres".
+SET
+Null display is "∅".
+
+==================================================================
+ 0. SANIDADE DA CARGA INICIAL
+==================================================================
+-- Todos os lançamentos respeitam partidas dobradas? (esperado: 0 linhas)
+ lancamento_id | debitos | creditos 
+---------------+---------+----------
+(0 rows)
+
+-- valor_total confere com a soma dos débitos? (esperado: 0 linhas)
+ id | valor_total | soma_debitos 
+----+-------------+--------------
+(0 rows)
+
+
+==================================================================
+ 1. FUNCTIONS
+==================================================================
+-- 1.1 fn_validar_cnpj
+        cnpj        | valido 
+--------------------+--------
+ 12345678000195     | t
+ 12.345.678/0001-90 | f
+ 11111111111111     | f
+(3 rows)
+
+-- 1.2 fn_classificar_confianca
+ confianca | faixa 
+-----------+-------
+      97.3 | ALTA
+      78.2 | MEDIA
+      41.5 | BAIXA
+         ∅ | N/A
+(4 rows)
+
+-- 1.3 fn_usuario_responsavel (Carlos→ABC = true; Mariana→ABC = false; João (cliente)→ABC = false)
+ carlos_abc | mariana_abc | joao_abc 
+------------+-------------+----------
+ t          | f           | f
+(1 row)
+
+-- 1.4 fn_saldo_conta — Empresa ABC: conta analítica (Bancos) e sintética (1 - ATIVO, soma subcontas)
+   codigo   |          nome          | analitica | saldo_total | saldo_outubro 
+------------+------------------------+-----------+-------------+---------------
+ 1          | ATIVO                  | f         |    48192.18 |      50312.18
+ 1.1.01.002 | Bancos Conta Movimento | t         |    47880.00 |      50000.00
+ 2.3.01.001 | Capital Subscrito      | t         |    50000.00 |      50000.00
+ 4          | RECEITAS               | f         |      312.18 |        312.18
+(4 rows)
+
+-- 1.5 fn_razao_conta — Razão da conta Bancos (ABC), out–nov/2026
+ data_lancamento | lancamento_id |      historico      |  debito  | credito |  saldo   
+-----------------+---------------+---------------------+----------+---------+----------
+ ∅               |             ∅ | SALDO ANTERIOR      |        ∅ |       ∅ |     0.00
+ 2026-10-01      |            20 | Depósito dos sócios | 50000.00 |    0.00 | 50000.00
+ 2026-11-04      |             3 | Pagamento via banco |     0.00 | 2120.00 | 47880.00
+(3 rows)
+
+
+==================================================================
+ 2. VIEWS
+==================================================================
+-- 2.1 vw_balancete — Empresa ABC, competência out/2026
+   codigo   |           conta           | natureza | total_debito | total_credito |  saldo   
+------------+---------------------------+----------+--------------+---------------+----------
+ 1.1.01.002 | Bancos Conta Movimento    | D        |     50000.00 |             ∅ | 50000.00
+ 1.1.01.003 | Aplicações Financeiras    | D        |       312.18 |             ∅ |   312.18
+ 2.3.01.001 | Capital Subscrito         | C        |            ∅ |      50000.00 | 50000.00
+ 4.1.02.001 | Rendimentos de Aplicações | C        |            ∅ |        312.18 |   312.18
+(4 rows)
+
+-- 2.2 vw_fila_revisao — fila do contador (baixa confiança primeiro)
+ lancamento_id |        razao_social         |                         descricao                         | valor_total |   origem   |  status   | nivel_confianca | faixa_confianca 
+---------------+-----------------------------+-----------------------------------------------------------+-------------+------------+-----------+-----------------+-----------------
+            17 | Auto Peças Rodovia Ltda     | Aluguel da loja novembro/2026                             |     3200.00 | IA         | PENDENTE  |           62.00 | BAIXA
+             7 | Auto Peças Rodovia Ltda     | Compra de peças para revenda - NF 3310                    |     7650.00 | IA         | CORRIGIDO |           78.20 | MEDIA
+            18 | Empresa ABC Ltda            | Serviço de limpeza - NF 980                               |     1450.00 | IA         | PENDENTE  |           88.30 | MEDIA
+             1 | Empresa ABC Ltda            | Compra de mercadorias com frete - NF 145 Fornecedor Delta |     1850.00 | IA         | PENDENTE  |           91.40 | ALTA
+             6 | Padaria Pão Dourado Ltda    | Compra de farinha de trigo - NF-e 8812                    |     4320.00 | IMPORTACAO | PENDENTE  |               ∅ | N/A
+            11 | Studio Fit Academia Ltda    | Conta de energia elétrica outubro/2026                    |     1287.45 | IA         | PENDENTE  |           97.30 | ALTA
+            12 | Transportadora Via Sul Ltda | Prestação de serviço de frete - NF-e 4410                 |     9300.00 | IMPORTACAO | PENDENTE  |               ∅ | N/A
+            19 | Comércio Silva Ltda         | Compra de material de escritório - NF 45678 (reenvio)     |      980.00 | IA         | PENDENTE  |           95.10 | ALTA
+(8 rows)
+
+-- 2.3 vw_painel_pendencias — dashboard gerencial (RF30)
+ cliente_id |           razao_social            | documentos_total | em_proc | falha | pend | aprov | tmr_h | acerto_ia 
+------------+-----------------------------------+------------------+---------+-------+------+-------+-------+-----------
+          1 | Empresa ABC Ltda                  |                4 |       1 |     0 |    2 |     3 |   1.6 |     100.0
+          2 | XYZ Comércio e Serviços Ltda      |                2 |       0 |     0 |    0 |     2 |   4.3 |     100.0
+          3 | Tech Solutions Informática S.A.   |                2 |       1 |     0 |    0 |     2 |   5.0 |         ∅
+          4 | Comércio Silva Ltda               |                2 |       0 |     0 |    1 |     0 |     ∅ |       0.0
+          5 | Padaria Pão Dourado Ltda          |                1 |       0 |     0 |    1 |     0 |     ∅ |         ∅
+          6 | Auto Peças Rodovia Ltda           |                2 |       0 |     0 |    2 |     0 |     ∅ |         ∅
+          7 | Clínica Odontológica Sorriso Ltda |                1 |       0 |     0 |    0 |     1 |  16.0 |     100.0
+          8 | Construtora Horizonte Ltda        |                1 |       0 |     0 |    0 |     2 |  18.4 |       0.0
+          9 | Mercado Bom Preço Ltda            |                2 |       0 |     0 |    0 |     2 |  10.5 |     100.0
+         10 | Studio Fit Academia Ltda          |                1 |       0 |     0 |    1 |     0 |     ∅ |         ∅
+         11 | Transportadora Via Sul Ltda       |                1 |       0 |     0 |    1 |     0 |     ∅ |         ∅
+         12 | Farmácia Vida Ltda                |                1 |       0 |     0 |    0 |     1 |   2.0 |         ∅
+         13 | Gráfica Express Ltda              |                1 |       0 |     1 |    0 |     0 |     ∅ |         ∅
+         14 | Restaurante Sabor Caseiro Ltda    |                0 |       0 |     0 |    0 |     0 |     ∅ |         ∅
+         15 | Agro Campo Verde Ltda             |                1 |       0 |     0 |    0 |     0 |     ∅ |         ∅
+(15 rows)
+
+
+==================================================================
+ 3. STORED PROCEDURES
+==================================================================
+-- 3.1 sp_registrar_lancamento: Carlos lança compra de computador para a ABC (manual → já nasce APROVADO)
+ p_lancamento_id | p_status 
+-----------------+----------
+              23 | APROVADO
+(1 row)
+
+-- 3.2 sp_aprovar_lancamento: Carlos aprova a sugestão da IA do lançamento 1 (NF 145)
+ p_documento_status 
+--------------------
+ APROVADO
+(1 row)
+
+ id |  status  | aprovado_por | documento | status_documento 
+----+----------+--------------+-----------+------------------
+  1 | APROVADO |            3 |         1 | APROVADO
+(1 row)
+
+-- 3.3 sp_reprovar_documento: Mariana rejeita o boleto (doc 20, confiança BAIXA)
+ p_qtd_reprovados 
+------------------
+                1
+(1 row)
+
+ id |  status   |                           motivo_rejeicao                            | lancamento | status_lanc 
+----+-----------+----------------------------------------------------------------------+------------+-------------
+ 20 | REJEITADO | Boleto sem autenticação bancária; enviar o comprovante de pagamento. |         17 | REPROVADO
+(1 row)
+
+-- 3.4 sp_exportar_lancamentos: exporta ABC de novembro/2026 (RF26)
+ p_exportacao_id | p_qtd 
+-----------------+-------
+               3 |     3
+(1 row)
+
+ id |                nome_arquivo                 | lancamentos 
+----+---------------------------------------------+-------------
+  1 | export_12345678000195_202610.csv            | 14, 20
+  3 | export_12345678000195_20261101_20261130.csv | 1, 3, 23
+(2 rows)
+
+-- 3.5 Tratamento de erros das procedures (todos devem ser barrados)
+psql:/tmp/dbrun/04_testes_e_transacoes.sql:165: NOTICE:  OK (erro esperado) [42501] Usuário 4 não é contador responsável pelo cliente 1
+psql:/tmp/dbrun/04_testes_e_transacoes.sql:165: NOTICE:  OK (erro esperado) [23514] Lançamento 2 já está APROVADO e não pode ser aprovado
+psql:/tmp/dbrun/04_testes_e_transacoes.sql:165: NOTICE:  OK (erro esperado) [23514] Lançamento rejeitado: Débitos (100.00) diferentes de créditos (90.00)
+psql:/tmp/dbrun/04_testes_e_transacoes.sql:165: NOTICE:  OK (erro esperado) [23514] Lançamento rejeitado: Cliente 14 está INATIVO e não aceita lançamentos
+psql:/tmp/dbrun/04_testes_e_transacoes.sql:165: NOTICE:  OK (erro esperado) [22023] Justificativa obrigatória (mínimo 10 caracteres) para rejeitar documento
+psql:/tmp/dbrun/04_testes_e_transacoes.sql:165: NOTICE:  OK (erro esperado) [P0002] Nenhum lançamento aprovado e não exportado no período 2026-11-01 a 2026-11-30
+DO
+
+==================================================================
+ 4. TRIGGERS
+==================================================================
+-- 4.1 Auditoria: Carlos atualiza o telefone da ABC; o log guarda antes/depois e quem fez
+BEGIN
+SET
+UPDATE 1
+COMMIT
+ id | tabela  | registro_id | operacao | telefone_antes | telefone_depois | usuario_app_id |          ocorrido_em          
+----+---------+-------------+----------+----------------+-----------------+----------------+-------------------------------
+  9 | cliente |           1 | U        | (15) 3333-1000 | (15) 3333-2000  |              3 | 2026-11-12 09:44:12.056207-03
+(1 row)
+
+-- 4.1b Auditoria do lançamento criado em 3.1 (I do cabeçalho, I dos itens, U da aprovação)
+     tabela      | operacao | registro_id | usuario_app_id |   info   
+-----------------+----------+-------------+----------------+----------
+ lancamento      | I        |          23 |              3 | PENDENTE
+ item_lancamento | I        |          50 |              3 | D
+ item_lancamento | I        |          51 |              3 | C
+ lancamento      | U        |          23 |              3 | APROVADO
+(4 rows)
+
+-- 4.1c Troca de senha: o evento é auditado, mas o hash é mascarado
+--      (dentro de BEGIN/ROLLBACK para não mudar a senha de demonstração)
+BEGIN
+UPDATE 1
+ operacao | senha_antes |  senha_depois  
+----------+-------------+----------------
+ U        | ***         | *** (alterada)
+(1 row)
+
+ROLLBACK
+-- 4.2 Integridade dos itens e do lançamento (todos devem ser barrados)
+psql:/tmp/dbrun/04_testes_e_transacoes.sql:261: NOTICE:  OK (erro esperado) Lançamento 2 está APROVADO e não pode ser alterado
+psql:/tmp/dbrun/04_testes_e_transacoes.sql:261: NOTICE:  OK (erro esperado) Conta 1.1.01.001 pertence a outra empresa (cliente 2), lançamento é do cliente 1
+psql:/tmp/dbrun/04_testes_e_transacoes.sql:261: NOTICE:  OK (erro esperado) Conta 1.1.01 é sintética; lance apenas em contas analíticas
+psql:/tmp/dbrun/04_testes_e_transacoes.sql:261: NOTICE:  OK (erro esperado) Conta 1.1.03.001 está inativa no plano desta empresa
+psql:/tmp/dbrun/04_testes_e_transacoes.sql:261: NOTICE:  OK (erro esperado) Lançamento 2 está APROVADO e não pode ser alterado
+psql:/tmp/dbrun/04_testes_e_transacoes.sql:261: NOTICE:  OK (erro esperado) Lançamento 2 está APROVADO e não pode ser excluído (RN02/RN07)
+psql:/tmp/dbrun/04_testes_e_transacoes.sql:261: NOTICE:  OK (erro esperado) Documento 2 pertence ao cliente 2, mas o lançamento é do cliente 1
+DO
+-- 4.3 Partidas dobradas (constraint trigger DEFERRABLE)
+--     a) Itens inseridos um a um na mesma transação: só confere no COMMIT → sucesso
+BEGIN
+INSERT 0 1
+INSERT 0 1
+INSERT 0 1
+COMMIT
+ id |                descricao                | valor_total |  status  
+----+-----------------------------------------+-------------+----------
+ 25 | Compra de material odontológico à vista |      860.00 | PENDENTE
+(1 row)
+
+--     b) Lançamento desbalanceado / sem itens: barrado (SET CONSTRAINTS IMMEDIATE antecipa a checagem do COMMIT)
+psql:/tmp/dbrun/04_testes_e_transacoes.sql:303: NOTICE:  OK (erro esperado) Partidas dobradas violadas no lançamento 26: débitos = 500.00, créditos = 450.00
+psql:/tmp/dbrun/04_testes_e_transacoes.sql:303: NOTICE:  OK (erro esperado) Lançamento 27 precisa de ao menos uma partida a débito e uma a crédito
+DO
+-- 4.4 valor_total recalculado pelo trigger ao corrigir uma sugestão (lançamento 7, CORRIGIDO)
+ id | valor_total 
+----+-------------
+  7 |     7650.00
+(1 row)
+
+BEGIN
+SET
+UPDATE 2
+INSERT 0 1
+COMMIT
+ id | valor_total 
+----+-------------
+  7 |     7590.00
+(1 row)
+
+-- 4.5 Constraints declarativas (todas devem ser barradas)
+psql:/tmp/dbrun/04_testes_e_transacoes.sql:372: NOTICE:  OK (erro esperado) duplicate key value violates unique constraint "uq_documento_hash"
+psql:/tmp/dbrun/04_testes_e_transacoes.sql:372: NOTICE:  OK (erro esperado) new row for relation "documento" violates check constraint "ck_documento_tamanho"
+psql:/tmp/dbrun/04_testes_e_transacoes.sql:372: NOTICE:  OK (erro esperado) new row for relation "documento" violates check constraint "ck_documento_tipo_formato"
+psql:/tmp/dbrun/04_testes_e_transacoes.sql:372: NOTICE:  OK (erro esperado) new row for relation "documento" violates check constraint "ck_documento_rejeicao"
+psql:/tmp/dbrun/04_testes_e_transacoes.sql:372: NOTICE:  OK (erro esperado) new row for relation "cliente" violates check constraint "ck_cliente_cnpj_dv"
+psql:/tmp/dbrun/04_testes_e_transacoes.sql:372: NOTICE:  OK (erro esperado) new row for relation "usuario" violates check constraint "ck_usuario_crc"
+psql:/tmp/dbrun/04_testes_e_transacoes.sql:372: NOTICE:  OK (erro esperado) duplicate key value violates unique constraint "uq_exportacao_lancamento"
+DO
+-- 4.6 Coluna gerada tipo_processamento (RN04)
+ id |          nome_arquivo           | formato | tipo_processamento 
+----+---------------------------------+---------+--------------------
+  1 | nfe_000145_fornecedor_delta.pdf | PDF     | IA
+  3 | nfe_2201_servicos_software.xml  | XML     | DIRETO
+ 13 | vendas_outubro_2026.json        | JSON    | DIRETO
+(3 rows)
+
+
+==================================================================
+ 5. CONTROLE TRANSACIONAL (ACID)
+==================================================================
+-- T1. ROLLBACK explícito: contador começa a corrigir o lançamento 6 e desiste
+ id | valor_total 
+----+-------------
+  6 |     4320.00
+(1 row)
+
+BEGIN
+UPDATE 2
+ id | valor_dentro_da_transacao 
+----+---------------------------
+  6 |                   4230.00
+(1 row)
+
+ROLLBACK
+ id | valor_apos_rollback 
+----+---------------------
+  6 |             4320.00
+(1 row)
+
+-- T2. Falha no meio da procedure → nada é gravado (atomicidade)
+--     O cabeçalho e o 1º item são inseridos; o 2º item usa conta inexistente.
+psql:/tmp/dbrun/04_testes_e_transacoes.sql:415: NOTICE:  Erro capturado: Referência inválida: Conta 9.9.99.999 não existe no plano de contas do cliente 1
+psql:/tmp/dbrun/04_testes_e_transacoes.sql:415: NOTICE:  lancamento: 24 → 24  | item_lancamento: 53 → 53  | log_auditoria: 14 → 14
+psql:/tmp/dbrun/04_testes_e_transacoes.sql:415: NOTICE:  OK: rollback completo, nenhuma escrita parcial ficou no banco
+DO
+-- T3. COMMIT de uma unidade de trabalho com várias tabelas:
+--     o pipeline de IA grava a análise do doc 4, muda o status e registra a sugestão — tudo ou nada
+BEGIN
+SET
+INSERT 0 1
+UPDATE 1
+ p_lancamento_id | p_status 
+-----------------+----------
+              29 | PENDENTE
+(1 row)
+
+COMMIT
+ documento |  status   | nivel_confianca | lancamento | status_lanc | valor_total 
+-----------+-----------+-----------------+------------+-------------+-------------
+         4 | ANALISADO |           92.50 |         29 | PENDENTE    |     1850.00
+(1 row)
+
+-- T4. SAVEPOINT: Rafael aprova o lançamento 12; em seguida tenta aprovar o 11,
+--     que não é da carteira dele. O erro abaixo é ESPERADO; voltamos ao savepoint
+--     e o COMMIT mantém só a primeira aprovação.
+BEGIN
+ p_documento_status 
+--------------------
+ APROVADO
+(1 row)
+
+SAVEPOINT
+psql:/tmp/dbrun/04_testes_e_transacoes.sql:441: ERROR:  Usuário 5 não é contador responsável pelo cliente 10
+CONTEXT:  PL/pgSQL function sp_aprovar_lancamento(bigint,bigint,text) line 17 at RAISE
+ROLLBACK
+COMMIT
+ id |  status  | aprovado_por 
+----+----------+--------------
+ 11 | PENDENTE |            ∅
+ 12 | APROVADO |            5
+(2 rows)
+
+
+==================================================================
+ 6. DESEMPENHO — EXPLAIN ANALYZE com e sem índice
+    Com 15–20 linhas o PostgreSQL sempre prefere Seq Scan (é mais
+    barato). Por isso geramos um volume realista DENTRO de uma
+    transação, medimos, e no final damos ROLLBACK: o banco volta
+    ao estado da carga inicial.
+==================================================================
+BEGIN
+INSERT 0 60000
+INSERT 0 30000
+ANALYZE
+ANALYZE
+INSERT 0 60000
+UPDATE 29091
+ANALYZE
+ANALYZE
+ANALYZE
+     tabela      | count 
+-----------------+-------
+ item_lancamento | 60055
+ lancamento      | 30025
+ documento       | 60022
+(3 rows)
+
+------------------------------------------------------------------
+ IDX1 idx_documento_cliente_status_data — fila de documentos (RF20)
+------------------------------------------------------------------
+>>> COM índice
+                                                    QUERY PLAN                                                    
+------------------------------------------------------------------------------------------------------------------
+ Limit (actual time=0.053..0.079 rows=20 loops=1)
+   Buffers: shared hit=20 read=3 written=1
+   ->  Index Scan using idx_documento_cliente_status_data on documento (actual time=0.052..0.076 rows=20 loops=1)
+         Index Cond: ((cliente_id = 5) AND ((status)::text = 'PENDENTE'::text))
+         Buffers: shared hit=20 read=3 written=1
+ Planning:
+   Buffers: shared hit=12 read=2
+ Planning Time: 0.183 ms
+ Execution Time: 0.091 ms
+(9 rows)
+
+SAVEPOINT
+DROP INDEX
+>>> SEM índice
+                                               QUERY PLAN                                               
+--------------------------------------------------------------------------------------------------------
+ Limit (actual time=2.897..2.900 rows=20 loops=1)
+   Buffers: shared hit=1623 read=5
+   ->  Sort (actual time=2.896..2.897 rows=20 loops=1)
+         Sort Key: data_upload DESC
+         Sort Method: top-N heapsort  Memory: 27kB
+         Buffers: shared hit=1623 read=5
+         ->  Bitmap Heap Scan on documento (actual time=0.462..2.865 rows=92 loops=1)
+               Recheck Cond: (cliente_id = 5)
+               Filter: ((status)::text = 'PENDENTE'::text)
+               Rows Removed by Filter: 4525
+               Heap Blocks: exact=1622
+               Buffers: shared hit=1623 read=5
+               ->  Bitmap Index Scan on uq_documento_chave (actual time=0.194..0.195 rows=4617 loops=1)
+                     Index Cond: (cliente_id = 5)
+                     Buffers: shared hit=1 read=5
+ Planning:
+   Buffers: shared hit=5
+ Planning Time: 0.084 ms
+ Execution Time: 2.916 ms
+(19 rows)
+
+ROLLBACK
+------------------------------------------------------------------
+ IDX2 idx_lancamento_cliente_data — lançamentos do mês (balancete/DRE/CSV)
+------------------------------------------------------------------
+>>> COM índice
+                                                        QUERY PLAN                                                        
+--------------------------------------------------------------------------------------------------------------------------
+ Index Scan using idx_lancamento_cliente_data on lancamento l (actual time=0.020..0.123 rows=112 loops=1)
+   Index Cond: ((cliente_id = 3) AND (data_lancamento >= '2026-03-01'::date) AND (data_lancamento <= '2026-03-31'::date))
+   Buffers: shared hit=178
+ Planning:
+   Buffers: shared hit=12
+ Planning Time: 0.090 ms
+ Execution Time: 0.136 ms
+(7 rows)
+
+SAVEPOINT
+DROP INDEX
+DROP INDEX
+>>> SEM índice
+                                                      QUERY PLAN                                                      
+----------------------------------------------------------------------------------------------------------------------
+ Seq Scan on lancamento l (actual time=1.149..3.958 rows=112 loops=1)
+   Filter: ((data_lancamento >= '2026-03-01'::date) AND (data_lancamento <= '2026-03-31'::date) AND (cliente_id = 3))
+   Rows Removed by Filter: 29913
+   Buffers: shared hit=1514
+ Planning:
+   Buffers: shared hit=4
+ Planning Time: 0.047 ms
+ Execution Time: 3.971 ms
+(8 rows)
+
+ROLLBACK
+------------------------------------------------------------------
+ IDX3 idx_item_conta — Razão de uma conta (JOIN item → lançamento)
+------------------------------------------------------------------
+>>> COM índice
+                                                  QUERY PLAN                                                   
+---------------------------------------------------------------------------------------------------------------
+ Hash Join (actual time=0.631..8.114 rows=2238 loops=1)
+   Hash Cond: (l.id = i.lancamento_id)
+   Buffers: shared hit=1537 read=2 written=2
+   InitPlan 1 (returns $0)
+     ->  Index Scan using uq_conta_cliente_codigo on conta_contabil (actual time=0.051..0.052 rows=1 loops=1)
+           Index Cond: ((cliente_id = 4) AND ((codigo)::text = '3.1.01.003'::text))
+           Buffers: shared hit=1 read=2 written=2
+   ->  Seq Scan on lancamento l (actual time=0.005..5.327 rows=29107 loops=1)
+         Filter: ((status)::text = 'APROVADO'::text)
+         Rows Removed by Filter: 918
+         Buffers: shared hit=1514
+   ->  Hash (actual time=0.613..0.615 rows=2310 loops=1)
+         Buckets: 4096 (originally 2048)  Batches: 1 (originally 1)  Memory Usage: 141kB
+         Buffers: shared hit=23 read=2 written=2
+         ->  Index Scan using idx_item_conta on item_lancamento i (actual time=0.064..0.374 rows=2310 loops=1)
+               Index Cond: (conta_contabil_id = $0)
+               Buffers: shared hit=23 read=2 written=2
+ Planning:
+   Buffers: shared hit=74
+ Planning Time: 0.319 ms
+ Execution Time: 8.217 ms
+(21 rows)
+
+SAVEPOINT
+DROP INDEX
+>>> SEM índice
+                                                  QUERY PLAN                                                  
+--------------------------------------------------------------------------------------------------------------
+ Hash Join (actual time=3.438..10.776 rows=2238 loops=1)
+   Hash Cond: (l.id = i.lancamento_id)
+   Buffers: shared hit=1959
+   InitPlan 1 (returns $0)
+     ->  Index Scan using uq_conta_cliente_codigo on conta_contabil (actual time=0.007..0.008 rows=1 loops=1)
+           Index Cond: ((cliente_id = 4) AND ((codigo)::text = '3.1.01.003'::text))
+           Buffers: shared hit=3
+   ->  Seq Scan on lancamento l (actual time=0.004..5.165 rows=29107 loops=1)
+         Filter: ((status)::text = 'APROVADO'::text)
+         Rows Removed by Filter: 918
+         Buffers: shared hit=1514
+   ->  Hash (actual time=3.421..3.422 rows=2310 loops=1)
+         Buckets: 4096 (originally 2048)  Batches: 1 (originally 1)  Memory Usage: 141kB
+         Buffers: shared hit=445
+         ->  Seq Scan on item_lancamento i (actual time=0.013..3.146 rows=2310 loops=1)
+               Filter: (conta_contabil_id = $0)
+               Rows Removed by Filter: 57745
+               Buffers: shared hit=445
+ Planning:
+   Buffers: shared hit=20
+ Planning Time: 0.202 ms
+ Execution Time: 10.879 ms
+(22 rows)
+
+ROLLBACK
+>>> IDX3 também protege o ON DELETE RESTRICT: excluir 13 contas não usadas
+    obriga o PostgreSQL a verificar se algum item referencia cada uma delas.
+>>> COM índice (veja "Trigger for constraint fk_item_conta")
+SAVEPOINT
+                                   QUERY PLAN                                   
+--------------------------------------------------------------------------------
+ Delete on conta_contabil (actual time=0.144..0.144 rows=0 loops=1)
+   ->  Seq Scan on conta_contabil (actual time=0.021..0.071 rows=13 loops=1)
+         Filter: ((cliente_id <= 13) AND ((codigo)::text = '1.2.03.002'::text))
+         Rows Removed by Filter: 752
+ Planning Time: 0.068 ms
+ Trigger for constraint fk_conta_pai: time=0.654 calls=13
+ Trigger for constraint fk_item_conta: time=0.300 calls=13
+ Trigger trg_auditoria_conta_contabil: time=0.936 calls=13
+ Execution Time: 2.069 ms
+(9 rows)
+
+ROLLBACK
+SAVEPOINT
+DROP INDEX
+>>> SEM índice
+                                   QUERY PLAN                                   
+--------------------------------------------------------------------------------
+ Delete on conta_contabil (actual time=0.083..0.084 rows=0 loops=1)
+   ->  Seq Scan on conta_contabil (actual time=0.018..0.069 rows=13 loops=1)
+         Filter: ((cliente_id <= 13) AND ((codigo)::text = '1.2.03.002'::text))
+         Rows Removed by Filter: 752
+ Planning Time: 0.043 ms
+ Trigger for constraint fk_conta_pai: time=0.668 calls=13
+ Trigger for constraint fk_item_conta: time=34.245 calls=13
+ Trigger trg_auditoria_conta_contabil: time=1.246 calls=13
+ Execution Time: 36.260 ms
+(9 rows)
+
+ROLLBACK
+------------------------------------------------------------------
+ IDX5 idx_lancamento_pendente (PARCIAL) — fila de lançamentos a revisar
+------------------------------------------------------------------
+                                            QUERY PLAN                                             
+---------------------------------------------------------------------------------------------------
+ Index Scan using idx_lancamento_pendente on lancamento (actual time=0.041..1.170 rows=71 loops=1)
+   Index Cond: (cliente_id = 6)
+   Buffers: shared hit=2984
+ Planning:
+   Buffers: shared hit=4
+ Planning Time: 0.118 ms
+ Execution Time: 1.182 ms
+(7 rows)
+
+>>> Tamanho: índice parcial x índice completo sobre as MESMAS colunas.
+    Medido numa cópia da tabela: dentro desta transação os índices originais
+    ainda guardam as versões antigas das linhas alteradas pelo UPDATE (MVCC).
+SELECT 30025
+CREATE INDEX
+CREATE INDEX
+           indice           | linhas_indexadas | tamanho 
+----------------------------+------------------+---------
+ completo (todas as linhas) |            30025 | 496 kB
+ parcial (só pendentes)     |              916 | 48 kB
+(2 rows)
+
+ROLLBACK
+
+==================================================================
+ 7. ESTADO FINAL
+==================================================================
+  status   | count 
+-----------+-------
+ APROVADO  |    16
+ CORRIGIDO |     1
+ PENDENTE  |     6
+ REPROVADO |     2
+(4 rows)
+
+     tabela      | operacao | count 
+-----------------+----------+-------
+ cliente         | U        |     1
+ documento       | U        |     4
+ item_lancamento | I        |     6
+ item_lancamento | U        |     2
+ lancamento      | I        |     3
+ lancamento      | U        |     4
+(6 rows)
+

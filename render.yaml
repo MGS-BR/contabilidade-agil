@@ -1,0 +1,24 @@
+# Blueprint do Render: New + > Blueprint > escolha este repositório > Apply.
+# Cria UM serviço web gratuito que serve a API (/api) e as telas (React).
+# O banco fica no Neon (PostgreSQL gratuito e permanente); o banco
+# gratuito do próprio Render expira em 30 dias, por isso não é usado aqui.
+services:
+  - type: web
+    name: contabilidade-agil
+    runtime: node
+    plan: free
+    region: virginia            # mesma região do banco no Neon (AWS us-east-1)
+    branch: main
+    autoDeploy: true
+    buildCommand: npm ci && npm run build
+    startCommand: npm start
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: DATABASE_URL       # cole a connection string do Neon (sem "-pooler")
+        sync: false
+      - key: JWT_SECRET         # chave aleatória para assinar os logins
+        generateValue: true
+      - key: DB_AUTO_SETUP      # cria tabelas + carga inicial na 1ª subida, se o banco estiver vazio
+        value: "true"
